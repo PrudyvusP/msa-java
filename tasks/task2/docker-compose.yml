@@ -1,6 +1,98 @@
-version: "3.8"
-
 services:
+
+  kafka:
+    container_name: kafka
+    image: confluentinc/cp-kafka:7.2.1
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - hotelio-net
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.2.1
+    depends_on:
+      - kafka
+    entrypoint: >
+      bash -c "
+        kafka-topics --create --if-not-exists \
+          --topic booking-events \
+          --partitions 1 \
+          --replication-factor 1 \
+          --bootstrap-server kafka:9092
+      "
+    networks:
+      - hotelio-net
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.2.1
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - hotelio-net
+
+  kafka_ui:
+    image: 'provectuslabs/kafka-ui:v0.7.2'
+    container_name: kafka_ui
+    ports:
+      - "8081:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    depends_on:
+      - kafka
+    networks:
+      - hotelio-net
+
+  booking-db:
+    image: postgres:15
+    container_name: booking-db
+    environment:
+      POSTGRES_USER: booking
+      POSTGRES_PASSWORD: booking
+      POSTGRES_DB: booking
+    ports:
+      - "54321:5432"
+    volumes:
+      - booking-db-data:/var/lib/postgresql/data
+    networks:
+      - hotelio-net
+
+  booking-service:
+    build:
+      context: ../../booking-microservice
+      dockerfile: Dockerfile
+    container_name: booking-service
+    environment:
+      GRPC_PORT: 9090
+      KAFKA_SERVER: kafka
+      KAFKA_PORT: 9092
+      KAFKA_BOOKING_TOPIC: booking-events
+      POSTGRES_USER: booking
+      POSTGRES_PASSWORD: booking
+      POSTGRES_DB: booking
+      POSTGRES_HOST: booking-db
+      POSTGRES_PORT: 5432
+    ports:
+      - "9090:9090"
+    depends_on:
+      - booking-db
+      - kafka
+    networks:
+      - hotelio-net
+
   monolith:
     build:
       context: ../monolith
@@ -31,29 +123,44 @@ services:
     networks:
       - hotelio-net
 
-  kafka:
-    image: confluentinc/cp-kafka:7.2.1
-    ports:
-      - "9092:9092"
+  history-db:
+    image: postgres:15
+    container_name: history-db
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      POSTGRES_USER: booking_history
+      POSTGRES_PASSWORD: booking_history
+      POSTGRES_DB: booking_history
+    ports:
+      - "54322:5432"
+    volumes:
+      - history-db-data:/var/lib/postgresql/data
     networks:
       - hotelio-net
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.2.1
-    ports:
-      - "2181:2181"
+
+  booking-history-service:
+    build:
+      context: ../../booking-history-service
+      dockerfile: Dockerfile
+    container_name: booking-history-service
     environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
+      KAFKA_SERVER: kafka
+      KAFKA_PORT: 9092
+      KAFKA_TOPIC: booking-events
+      POSTGRES_USER: booking_history
+      POSTGRES_PASSWORD: booking_history
+      POSTGRES_DB: booking_history
+      POSTGRES_HOST: history-db
+      POSTGRES_PORT: 5432
+    depends_on:
+      - history-db
+      - kafka
     networks:
       - hotelio-net
 
 volumes:
   monolith-db-data:
+  booking-db-data:
+  history-db-data:
 
 networks:
   hotelio-net:

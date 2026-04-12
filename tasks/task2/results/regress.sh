@@ -122,3 +122,4 @@ curl -sSf -X POST "${BASE}/api/bookings?userId=test-user-3&hotelId=test-hotel-1"
 # 4. Ещё одно бронирование (promoCode пока не тестируем — NPE в монолите)
 curl -sSf -X POST "${BASE}/api/bookings?userId=test-user-2&hotelId=test-hotel-1" | grep -q 'test-hotel-1' && pass "Ещё одно бронирование прошло" || fail "Бронирование не прошло"
 echo "✅ Все HTTP-тесты пройдены!"
+

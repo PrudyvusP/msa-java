@@ -1,0 +1,6 @@
+grpcio
+grpcio-tools
+confluent-kafka
+python-dotenv
+psycopg2-binary
+sqlalchemy
