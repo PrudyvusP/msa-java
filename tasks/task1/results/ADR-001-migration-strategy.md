@@ -202,3 +202,120 @@ bs --> client : 200 OK (Booking)
 | **3. Booking History Service** | Kafka-consumer читает `BookingCreated`, сохраняет в свою БД. Эндпоинты для аналитики (по пользователям, отелям, дням). | Аналитика работает |
 | **4. Роутинг** | API Gateway: `/api/bookings/**` → booking-service. Canary 10%. Environment: `BOOKING_SERVICE_EXTERNAL_HOST`, `BOOKING_SERVICE_EXTERNAL_PORT`. | Трафик перенаправлен |
 | **5. Отрезание** | Удалить Booking-код из монолита. Миграция данных. Убедиться, что booking-history-service продолжает получать события. | Оба сервиса независимы |
+
+## Целевое состояние системы (через год)
+
+После завершения всех этапов миграции монолитное Java-приложение будет полностью заменено набором независимых микросервисов. Каждый сервис отвечает за строго ограниченную бизнес-область, имеет собственную базу данных и публичный API (REST/gRPC/GraphQL). Асинхронные взаимодействия реализованы через Kafka, синхронные — через gRPC с таймаутами и retry. Внедрены service mesh (Istio), метрики (Prometheus) и распределённая трассировка (Jaeger). Для фронтенда предоставляется GraphQL BFF (Backend For Frontend).
+
+### Состав сервисов и их ответственность
+
+| Сервис | Ответственность | Тип API | База данных |
+| ------ | --------------- | ------- | ------------ |
+| **User Service** | Управление профилями пользователей, статусами (активен/чёрный список), аутентификация/авторизация. | gRPC + REST | `user_db` |
+| **Hotel Service** | CRUD отелей, поиск, фильтрация, заполненность номеров. | gRPC + REST | `hotel_db` |
+| **Promo Service** | Жизненный цикл промокодов, проверка применимости, расчёт скидки. | gRPC | `promo_db` |
+| **Review Service** | Отзывы и рейтинг отелей, определение «доверенного» отеля. | gRPC + REST | `review_db` |
+| **Booking Service** | Приём и валидация бронирований, расчёт финальной цены, сохранение в своей БД, публикация события `BookingCreated`. | REST (для клиентов) + gRPC (внутренний) | `booking_db` |
+| **Booking History Service** | Подписка на `BookingCreated`, хранение полной истории бронирований для аналитики. Предоставляет агрегирующие эндпоинты (по пользователям, отелям, дням). | REST (только для аналитиков) | `history_db` |
+| **API Gateway** | Единая точка входа для внешних клиентов, маршрутизация, аутентификация, лимиты. | REST / WebSocket | — |
+| **GraphQL BFF** | Адаптация данных под нужды фронтенда (Web/Mobile), агрегация вызовов к нескольким сервисам. | GraphQL | — |
+
+### Диаграмма контекста целевой архитектуры
+
+```plantuml
+@startuml target_context
+skinparam componentStyle rectangle
+skinparam backgroundColor #FFFFFF
+
+actor "Клиент (Web/Mobile)" as client
+actor "Аналитик" as analyst
+
+component "API Gateway" as gateway
+component "GraphQL BFF" as bff
+
+component "User Service" as user
+component "Hotel Service" as hotel
+component "Promo Service" as promo
+component "Review Service" as review
+component "Booking Service" as booking
+component "Booking History Service" as history
+
+component "Kafka" as kafka
+component "Service Mesh\n(Istio)" as mesh
+
+database "user_db" as user_db
+database "hotel_db" as hotel_db
+database "promo_db" as promo_db
+database "review_db" as review_db
+database "booking_db" as booking_db
+database "history_db" as history_db
+
+client --> gateway : HTTPS
+gateway --> bff : HTTP (внутренний)
+bff --> user : gRPC
+bff --> hotel : gRPC
+bff --> booking : gRPC
+
+client --> gateway : (альтернативно прямой REST)
+gateway --> booking : REST /api/bookings
+
+booking --> user : gRPC
+booking --> hotel : gRPC
+booking --> promo : gRPC
+booking --> review : gRPC
+booking --> booking_db
+
+booking --> kafka : publish BookingCreated
+kafka --> history : consume
+
+history --> history_db
+
+analyst --> history : REST (аналитика)
+
+mesh -[hidden]-> booking
+@enduml
+```
+
+### Принципы взаимодействия
+
+- **Синхронные вызовы** между сервисами — только через gRPC с таймаутами, retry и circuit breaker (реализуется через service mesh).
+- **Асинхронные события** — Kafka, гарантия доставки *at-least-once*, идемпотентность обработки.
+- **Database-per-Service** — никаких общих таблиц, только обмен через API или события.
+- **GraphQL BFF** — один на все фронтенды, скрывает микросервисную сложность.
+- **API Gateway** — обеспечивает авторизацию, лимиты, логирование и маршрутизацию.
+
+---
+
+## Очередность миграции остальных сервисов (после Booking)
+
+Первый шаг (Booking + Booking History) уже описан в ADR-001. Далее предлагается следующая очерёдность, основанная на снижении связанности и максимизации пользы для бизнеса.
+
+| Очередь | Сервис | Обоснование | Ключевые зависимости | Ожидаемая длительность |
+| :-----: | ------ | ----------- | -------------------- | ----------------------- |
+| **2** | **User Service** | Является фундаментальным для многих сервисов (Booking, Promo, Review). Вынос позволит остальным сервисам получать данные пользователя через gRPC, а не напрямую из БД монолита. | Монолит (UserController, UserService) | 2–3 недели |
+| **3** | **Hotel Service** | Используется Booking Service и будущим Search Service. Высокая частота запросов, вынос улучшит масштабируемость поиска. | Монолит (HotelController, HotelService) | 2 недели |
+| **4** | **Promo Service** | Логика промокодов меняется часто, изоляция ускорит доставку фич. | User Service (для проверки применимости к пользователю) | 1–2 недели |
+| **5** | **Review Service** | Относительно независим, но влияет на доверие к отелю в Booking Service. Выносится после Hotel Service. | Hotel Service (проверка существования отеля) | 1 неделя |
+| **6** | **API Gateway + GraphQL BFF** | После выноса всех бизнес-сервисов можно переключить внешний трафик с монолита на шлюз. | Все сервисы | 2 недели |
+| **7** | **Отключение монолита** | Удаление кода всех вынесенных сервисов из монолита, перенос последних миграций данных. | Все сервисы | 1 неделя |
+
+### План миграции по этапам (после завершения фазы 5 из ADR-001)
+
+| Фаза | Задачи | Результат |
+| :--: | ------ | --------- |
+| **6** | **Вынос User Service** <br/>- Создать Python/FastAPI проект, gRPC-сервер (методы `GetUserInfo`, `GetUserStatus`). <br/>- Скопировать данные из монолита в `user_db`. <br/>- Переключить Booking Service на вызов нового User Service (feature flag). <br/>- Удалить `UserService` из монолита. | User Service работает независимо, монолит уменьшен. |
+| **7** | **Вынос Hotel Service** <br/>- Аналогично, создать сервис с gRPC (`GetHotelInfo`, `SearchHotels`). <br/>- Переключить Booking Service и Review Service на него. | Hotel Service независим. |
+| **8** | **Вынос Promo Service** <br/>- gRPC-сервер `ValidatePromo`. <br/>- В Booking Service заменить вызов. | Promo Service изолирован. |
+| **9** | **Вынос Review Service** <br/>- gRPC-сервер `IsHotelTrusted`. <br/>- Переключить Booking Service. | Review Service независим. |
+| **10** | **Внедрение API Gateway и GraphQL BFF** <br/>- Развернуть Kong/Envoy + Apollo Federation (или аналог). <br/>- Настроить маршруты: `/api/bookings/**` → Booking Service, `/api/users/**` → User Service и т.д. <br/>- GraphQL-схема, объединяющая отели, бронирования, пользователей. | Единая точка входа, фронтенд переходит на GraphQL. |
+| **11** | **Service Mesh, мониторинг, трассировка** <br/>- Установить Istio, настроить mTLS, circuit breakers. <br/>- Prometheus + Grafana дашборды. <br/>- Jaeger для трассировки всех gRPC-вызовов. | Полная наблюдаемость. |
+| **12** | **Финализация** <br/>- Удалить из монолита все вынесенные контроллеры, сервисы и DAO. <br/>- Остановить монолит. <br/>- Перенести оставшиеся фоновые задачи (если есть) в отдельные сервисы. | Монолит полностью заменён. |
+
+### Риски и митигации на последующих этапах
+
+| Риск | Влияние | Митигация |
+| ---- | ------- | ---------- |
+| Потеря данных при миграции пользователей/отелей | Высокое | Двойная запись (write to both) в течение переходного периода, сверка контрольных сумм. |
+| Увеличение задержек из-за цепочки gRPC-вызовов (User → Hotel → Promo) | Среднее | Service mesh с circuit breaker, кэширование (Redis) в каждом сервисе, асинхронные fallback'и. |
+| Разрастание количества сервисов → сложность локальной разработки | Среднее | Docker Compose с профилями, среда для разработки с поднятием только нужных сервисов. |
+| Несовместимость .proto контрактов при параллельных изменениях | Среднее | Общий репозиторий `proto`, версионирование (например, `v1/...`), CI-проверка на breaking changes. |
