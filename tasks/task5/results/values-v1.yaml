@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-service-v1
+  labels:
+    app: booking-service
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: booking-service
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: booking-service
+        version: v1
+    spec:
+      containers:
+        - name: app
+          image: booking-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ENABLE_FEATURE_X
+              value: "true"
+            - name: ENABLE_HEADER_FEATURE
+              value: "false"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
