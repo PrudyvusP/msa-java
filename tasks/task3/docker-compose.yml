@@ -3,6 +3,7 @@ version: '3.8'
 services:
   apollo-gateway:
     build: ./gateway
+    container_name: apollo-gateway
     ports:
       - "4000:4000"
     depends_on:
@@ -11,10 +12,12 @@ services:
 
   booking-subgraph:
     build: ./booking-subgraph
+    container_name: booking-subgraph
     ports:
       - "4001:4001"
 
   hotel-subgraph:
     build: ./hotel-subgraph
+    container_name: hotel-subgraph
     ports:
       - "4002:4002"

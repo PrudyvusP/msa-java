@@ -1,0 +1,24 @@
+CONTAINER ID   IMAGE                             COMMAND                  CREATED         STATUS         PORTS                                                             NAMES
+da6ad1ebf4d8   task3-apollo-gateway              "docker-entrypoint.s…"   6 seconds ago   Up 5 seconds   0.0.0.0:4000->4000/tcp, [::]:4000->4000/tcp                       apollo-gateway
+a384eb16822e   task3-hotel-subgraph              "docker-entrypoint.s…"   6 seconds ago   Up 6 seconds   0.0.0.0:4002->4002/tcp, [::]:4002->4002/tcp                       hotel-subgraph
+952aaf2056b5   task3-booking-subgraph            "docker-entrypoint.s…"   6 seconds ago   Up 6 seconds   0.0.0.0:4001->4001/tcp, [::]:4001->4001/tcp                       booking-subgraph
+f7db895d525d   task2-booking-service             "python -m app.app"      4 hours ago     Up 4 hours     0.0.0.0:9090->9090/tcp, [::]:9090->9090/tcp                       booking-service
+5659baa2796a   task2-booking-history-service     "python -m app.app"      4 hours ago     Up 4 hours                                                                       booking-history-service
+188c73d54c7a   provectuslabs/kafka-ui:v0.7.2     "/bin/sh -c 'java --…"   4 hours ago     Up 4 hours     0.0.0.0:8081->8080/tcp, [::]:8081->8080/tcp                       kafka_ui
+e2fdc3f75f15   postgres:15                       "docker-entrypoint.s…"   4 hours ago     Up 4 hours     0.0.0.0:54322->5432/tcp, [::]:54322->5432/tcp                     history-db
+f0519c76e037   postgres:15                       "docker-entrypoint.s…"   4 hours ago     Up 4 hours     0.0.0.0:54321->5432/tcp, [::]:54321->5432/tcp                     booking-db
+73be9808d1c7   postgres:15                       "docker-entrypoint.s…"   4 hours ago     Up 4 hours     0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp                       hotelio-db
+4fd293ca1c63   confluentinc/cp-kafka:7.2.1       "/etc/confluent/dock…"   4 hours ago     Up 4 hours     0.0.0.0:9092-9093->9092-9093/tcp, [::]:9092-9093->9092-9093/tcp   kafka
+28c3da01b92e   task2-monolith                    "java -jar app.jar"      4 hours ago     Up 4 hours     0.0.0.0:8084->8080/tcp, [::]:8084->8080/tcp                       hotelio-monolith
+d01b3cb0bdc7   confluentinc/cp-zookeeper:7.2.1   "/etc/confluent/dock…"   4 hours ago     Up 4 hours     2888/tcp, 0.0.0.0:2181->2181/tcp, [::]:2181->2181/tcp, 3888/tcp   task2-zookeeper-1
+
+
+
+
+(venv) ppa@IdeaPad:~/vscode/projects/msa-java/tasks/task3$ sudo docker logs -f booking-subgraph
+Enabling inline tracing for this subgraph. To disable, use ApolloServerPluginInlineTraceDisabled.
+✅ Booking subgraph ready at http://localhost:4001/
+[ACL] Запрос: requester="user2", target="user2"
+[ACL] Allow: userId=user2
+[ACL] Запрос: requester="", target="user2"
+[ACL] Deny: отсутствует заголовок userid
